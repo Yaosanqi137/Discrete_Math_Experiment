@@ -213,26 +213,44 @@ class Matrix:
                 comp_names = [f"v{node + 1}" for node in comp_nodes]
                 print(f"分支 {idx + 1}: {{{', '.join(comp_names)}}}")
 
-if __name__ == "__main__":
-    row = int(input("请输入关联矩阵的行数 (顶点数): "))
-    col = int(input("请输入关联矩阵的列数 (边数): "))
+    @staticmethod
+    def from_input():
+        method = int(input("请选择输入矩阵的方式 (0: 手动输入, 1: 文件输入): "))
+        if method == 1:
+            filename = input("请输入文件名: ")
+            with open(filename, 'r') as f:
+                lines = f.readlines()
 
-    matrix = []
-    print(f"请输入矩阵的元素 (共 {row} 行，每行 {col} 个数字):")
-    for i in range(row):
-        while True:
-            line = input(f"请输入第 {i + 1} 行元素: ")
-            row_elements = list(map(int, line.split()))
-            if len(row_elements) != col:
-                print(f"输入错误：该行应当有 {col} 个数字，请重新输入")
-            elif any(x not in (0, 1) for x in row_elements):
-                print("输入错误：矩阵元素只能是 0 或 1，请重新输入")
-            else:
+            row, col = map(int, lines[0].strip().split()) # 读取行列数
+            matrix = []
+            for i in range(1, row + 1):
+                row_elements = list(map(int, lines[i].strip().split())) # 逐行读取矩阵
                 matrix.append(row_elements)
-                break
 
-    # 创建矩阵对象
-    incidence_matrix = Matrix(row, col, matrix, 1)
+            matrix_type = int(lines[row + 1].strip()) # 矩阵类型
+            return Matrix(row, col, matrix, matrix_type)
+        else:
+            row = int(input("请输入矩阵的行数: "))
+            col = int(input("请输入矩阵的列数: "))
+
+            matrix = []
+            print(f"请输入矩阵的元素 (共 {row} 行，每行 {col} 个数字):")
+            for i in range(row):
+                while True:
+                    line = input(f"请输入第 {i + 1} 行元素: ")
+                    row_elements = list(map(int, line.split()))
+                    if len(row_elements) != col:
+                        print(f"输入错误：该行应当有 {col} 个数字，请重新输入")
+                    else:
+                        matrix.append(row_elements)
+                        break
+
+            matrix_type = int(input("请输入矩阵类型 (0: 相邻矩阵, 1: 关联矩阵): "))
+            return Matrix(row, col, matrix, matrix_type)
+
+if __name__ == "__main__":
+    # 从用户输入获取矩阵
+    incidence_matrix = Matrix.from_input()
 
     # 任务一 绘制图形
     incidence_matrix.draw_matrix_graph()
