@@ -47,12 +47,12 @@ class Matrix:
     # 打印矩阵
     def show_matrix(self):
         if self._type_ == 0:
-            print("     ", end='')
+            print("      ", end='')
             for i in range(self._col_):
                 print("v" + str(i + 1), end=' ')
             print()
         if self._type_ == 1:
-            print("     ", end='')
+            print("      ", end='')
             for i in range(self._col_):
                 print("e" + str(i + 1), end=' ')
             print()
@@ -222,12 +222,18 @@ class Matrix:
                 lines = f.readlines()
 
             row, col = map(int, lines[0].strip().split()) # 读取行列数
+            matrix_type = int(lines[row + 1].strip()) # 矩阵类型
+
             matrix = []
             for i in range(1, row + 1):
                 row_elements = list(map(int, lines[i].strip().split())) # 逐行读取矩阵
+                # 检查元素是否合法
+                if any(el < 0 for el in row_elements) and matrix_type == 0:
+                    raise ValueError("相邻矩阵元素必须大于等于 0")
+                if any(el not in (0, 1) for el in row_elements) and matrix_type == 1:
+                    raise ValueError("关联矩阵元素必须为 0 或 1")
                 matrix.append(row_elements)
 
-            matrix_type = int(lines[row + 1].strip()) # 矩阵类型
             return Matrix(row, col, matrix, matrix_type)
         else:
             row = int(input("请输入矩阵的行数: "))
