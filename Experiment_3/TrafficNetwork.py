@@ -12,9 +12,9 @@ class TrafficAnalyzer:
         self.adj_matrix = np.array(matrix, dtype=int)
         self.n = len(self.adj_matrix)
 
-        # 自动标定边 e1, e2, ... (按行顺序标定)
-        self.edge_list = []  # 存储 (u, v, label)
-        self.edge_map = {}   # 存储 (u, v) -> label
+        # 标定边 e1, e2...
+        self.edge_list = []
+        self.edge_map = {}
         edge_count = 1
         for i in range(self.n):
             for j in range(i + 1, self.n):
@@ -24,189 +24,235 @@ class TrafficAnalyzer:
                     self.edge_map[tuple(sorted((i, j)))] = label
                     edge_count += 1
 
-        # 构建 NetworkX 图对象用于计算
         self.G = nx.Graph()
         self.G.add_nodes_from(range(self.n))
         for u, v, label in self.edge_list:
             self.G.add_edge(u, v, label=label)
 
-    def solve_spanning_trees(self):
-        """
-        任务3：计算生成树总个数 (矩阵树定理)
-        """
-        if not nx.is_connected(self.G):
-            return 0
-
-        # 度矩阵 D
+    def solve_spanning_trees_count(self):
+        """任务3：计算生成树总个数"""
+        if not nx.is_connected(self.G): return 0
         D = np.diag(np.sum(self.adj_matrix, axis=1))
-        # 拉普拉斯矩阵 L = D - A
         L = D - self.adj_matrix
-        # 删去最后一项，计算余子式
-        reduced_L = L[:-1, :-1]
-        count = round(np.linalg.det(reduced_L))
-        return abs(count)
+
+        return abs(round(np.linalg.det(L[:-1, :-1])))
+
+    def get_all_spanning_trees(self):
+        """枚举并返回所有生成树的边集"""
+        all_trees_labels = []
+        for combo in itertools.combinations(self.edge_list, self.n - 1):
+            temp_G = nx.Graph()
+            temp_G.add_nodes_from(range(self.n))
+            for u, v, label in combo:
+                temp_G.add_edge(u, v)
+            if nx.is_connected(temp_G):
+                labels = sorted([item[2] for item in combo], key=lambda x: int(x[1:]))
+                all_trees_labels.append(labels)
+
+        return all_trees_labels
 
     def get_one_spanning_tree(self):
-        """
-        任务2：构建一颗生成树并返回其邻接矩阵
-        """
+        """获取一颗用于分析的基准生成树 T1"""
         T = nx.minimum_spanning_tree(self.G)
         T_adj = nx.to_numpy_array(T, weight=None, dtype=int)
-
-        # 提取属于树的边标签
-        tree_edges = []
-        for u, v in T.edges():
-            tree_edges.append(self.edge_map[tuple(sorted((u, v)))])
-
+        tree_edges = [self.edge_map[tuple(sorted((u, v)))] for u, v in T.edges()]
         return T_adj, T, tree_edges
 
+    def _format_alternating_sequence(self, path_nodes, closing_edge=None):
+        """应老师要求，将节点路径转换为 点-边 交替序列"""
+        seq = []
+        for i in range(len(path_nodes) - 1):
+            u, v = path_nodes[i], path_nodes[i + 1]
+            edge_label = self.edge_map[tuple(sorted((u, v)))]
+            seq.append(f"v{u}")
+            seq.append(edge_label)
+
+        seq.append(f"v{path_nodes[-1]}")
+        if closing_edge:
+            seq.append(closing_edge)
+            seq.append(f"v{path_nodes[0]}")
+
+        return "-".join(seq)
+
     def solve_basic_cycles(self, T):
-        """
-        任务4：求解基本回路系统 (最小绕行单元库)
-        """
-        basic_cycles = []
-        # 找出不在生成树 T 中的边 (连枝/余树边)
+        """任务4：求解基本回路系统 (交替序列)"""
+        formatted_cycles = []
+        raw_edges_list = []
         for u, v, label in self.edge_list:
             if not T.has_edge(u, v):
-                # 在生成树中寻找 u 到 v 的唯一路径
-                path = nx.shortest_path(T, source=u, target=v)
-                cycle_edges = []
-                # 路径上的边
-                for k in range(len(path) - 1):
-                    e_label = self.edge_map[tuple(sorted((path[k], path[k+1])))]
-                    cycle_edges.append(e_label)
-                # 加上当前这条余树边
-                cycle_edges.append(label)
-                # 排序整理标签 e1e2e3
-                cycle_edges.sort(key=lambda x: int(x[1:]))
-                basic_cycles.append(cycle_edges)
+                path_nodes = nx.shortest_path(T, source=u, target=v)
 
-        # 格式化输出字符串
-        formatted_cycles = ["".join(c) for c in basic_cycles]
-        return basic_cycles, formatted_cycles
+                # 记录原始边集用于空间计算
+                edges = [self.edge_map[tuple(sorted((path_nodes[i], path_nodes[i + 1])))]
+                         for i in range(len(path_nodes) - 1)]
+                edges.append(label)
+                raw_edges_list.append(edges)
 
-    def solve_cycle_space(self, basic_cycles_list):
-        """
-        任务5：求解环路空间
-        """
-        # 环路空间是基本回路组的幂集，通过对称差(XOR)运算得到
-        cycle_space = [set()] # 初始包含空环 Φ
+                # 记录格式化序列用于显示
+                formatted_cycles.append(self._format_alternating_sequence(path_nodes, closing_edge=label))
 
-        # 转换基本回路为 set 方便异或
-        basis = [set(c) for c in basic_cycles_list]
+        return raw_edges_list, formatted_cycles
 
-        # 遍历所有基回路的组合 (2^k 种)
+    def _order_cycle_space_element(self, edge_labels):
+        """将环路空间元素格式化为交替序列"""
+        if not edge_labels: return "Φ"
+        sub_edges = [(u, v) for u, v, lab in self.edge_list if lab in edge_labels]
+        sub_G = nx.Graph(sub_edges)
+
+        try:
+            cycles = nx.cycle_basis(sub_G)
+            if not cycles: return "-".join(sorted(list(edge_labels), key=lambda x: int(x[1:])))
+
+            res = []
+            for cyc in cycles:
+                path = cyc + [cyc[0]]
+                seq = []
+                for i in range(len(path) - 1):
+                    seq.append(f"v{path[i]}")
+                    seq.append(self.edge_map[tuple(sorted((path[i], path[i + 1])))])
+                seq.append(f"v{path[0]}")
+                res.append("-".join(seq))
+
+            return " ∪ ".join(res)
+        except:
+            return "-".join(sorted(list(edge_labels), key=lambda x: int(x[1:])))
+
+    def solve_cycle_space(self, raw_basis):
+        """任务5：求解环路空间"""
+        space_sets = [set()]
+        basis = [set(b) for b in raw_basis]
+
         for r in range(1, len(basis) + 1):
             for subset in itertools.combinations(basis, r):
-                # 计算组合的对称差
                 res = set()
                 for s in subset:
-                    res = res ^ s # 对称差运算
+                    res = res ^ s
                 if res:
-                    cycle_space.append(res)
+                    space_sets.append(res)
 
-        # 格式化输出
-        output = []
-        for c in cycle_space:
-            if not c:
-                output.append("Φ")
-            else:
-                sorted_c = sorted(list(c), key=lambda x: int(x[1:]))
-                output.append("".join(sorted_c))
-        return output
+        return [self._order_cycle_space_element(s) for s in space_sets]
 
-    def visualize(self, tree_adj=None, title="交通网络图"):
-        """可视化网络图和生成树"""
+    def visualize(self, tree_adj=None, title="交通网络分析"):
         plt.figure(figsize=(8, 6))
         pos = nx.spring_layout(self.G, seed=42)
-
-        # 画节点
         nx.draw_networkx_nodes(self.G, pos, node_color='#A0CBE2', node_size=500)
         nx.draw_networkx_labels(self.G, pos)
-
-        # 画所有边
         edge_labels = nx.get_edge_attributes(self.G, 'label')
-
         if tree_adj is not None:
-            # 如果提供了生成树，高亮显示
-            all_edges = self.G.edges()
-            tree_edges = []
-            for i in range(self.n):
-                for j in range(i+1, self.n):
-                    if tree_adj[i][j] == 1:
-                        tree_edges.append((i, j))
-
-            # 画非树边 (浅色虚线)
-            non_tree_edges = [e for e in all_edges if tuple(sorted(e)) not in [tuple(sorted(te)) for te in tree_edges]]
-            nx.draw_networkx_edges(self.G, pos, edgelist=non_tree_edges, style='dashed', alpha=0.3)
-            # 画树边 (红色加粗)
-            nx.draw_networkx_edges(self.G, pos, edgelist=tree_edges, edge_color='red', width=2)
+            all_e = list(self.G.edges())
+            t_e = [(i, j) for i in range(self.n) for j in range(i + 1, self.n) if tree_adj[i][j] == 1]
+            non_t = [e for e in all_e if tuple(sorted(e)) not in [tuple(sorted(te)) for te in t_e]]
+            nx.draw_networkx_edges(self.G, pos, edgelist=non_t, style='dashed', alpha=0.3)
+            nx.draw_networkx_edges(self.G, pos, edgelist=t_e, edge_color='red', width=2)
         else:
             nx.draw_networkx_edges(self.G, pos)
-
         nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels)
         plt.title(title)
         plt.show()
 
     @staticmethod
     def from_input():
-        """
-        支持手动输入和文件输入的接口
-        """
         while True:
             try:
-                method = int(input("请选择输入邻接矩阵的方式 (0: 手动输入, 1: 来自文件): "))
-                if method in [0, 1]: break
-            except ValueError: pass
+                method = int(input("请选择输入邻接矩阵的方式 (0: 手动输入, 1: 文件输入): "))
+                if method in [0, 1]:
+                    break
+                print("输入错误，请输入 0 或 1")
+            except ValueError:
+                print("请输入数字")
 
         matrix = []
+
         if method == 1:
-            filename = input("请输入文件名 (如 data.txt): ")
+            # 文件输入
+            filename = input("请输入文件名 (例如 test.txt): ")
             try:
                 with open(filename, 'r') as f:
                     lines = [l.strip() for l in f.readlines() if l.strip()]
+
+                # 第一行读取节点数 N
                 n = int(lines[0])
+
+                # 读取接下来的 N 行作为矩阵
+                if len(lines) < n + 1:
+                    raise ValueError("文件行数不足")
+
+                print(f"检测到 {n} 个节点，正在读取矩阵...")
+
                 for i in range(1, n + 1):
-                    matrix.append(list(map(int, lines[i].split())))
-            except Exception as e:
-                print(f"读取文件失败: {e}")
+                    row_elements = list(map(float, lines[i].split()))
+                    if len(row_elements) != n:
+                        raise ValueError(f"第 {i} 行数据列数不正确，应为 {n} 列")
+                    matrix.append(row_elements)
+
+            except FileNotFoundError:
+                print(f"错误：找不到文件 {filename}")
                 return None
+            except Exception as e:
+                print(f"文件读取错误: {e}")
+                return None
+
         else:
-            n = int(input("请输入路口(节点)数量 N: "))
-            print(f"请输入 {n}x{n} 邻接矩阵 (每行 {n} 个数字，空格分隔):")
+            # 手动输入
+            while True:
+                try:
+                    n = int(input("请输入检测点(节点)数量 N: "))
+                    if n > 1:
+                        break
+                    print("节点数必须大于 1")
+                except ValueError:
+                    print("请输入整数")
+
+            print(f"请输入邻接矩阵 (共 {n} 行，每行 {n} 个数字，空格分隔):")
+            print("提示：主对角线(自己到自己)通常为0")
+
             for i in range(n):
-                row = list(map(int, input(f"第 {i+1} 行: ").split()))
-                matrix.append(row)
+                while True:
+                    try:
+                        line = input(f"请输入第 {i + 1} 行: ")
+                        row_elements = list(map(float, line.split()))
+                        if len(row_elements) != n:
+                            print(f"错误：该行应当有 {n} 个数字，当前有 {len(row_elements)} 个")
+                            continue
+                        matrix.append(row_elements)
+                        break
+                    except ValueError:
+                        print("输入包含非数字字符，请重试")
 
         return TrafficAnalyzer(matrix)
+
 
 if __name__ == "__main__":
     analyzer = TrafficAnalyzer.from_input()
 
     if analyzer:
-        print("=交通网络边标定结果 (按行顺序):")
-        for u, v, label in analyzer.edge_list:
-            print(f"  {label}: ({u}-{v})")
+        print("边标定结果:")
+        for u, v, label in analyzer.edge_list: print(f"   {label}: (v{u}-v{v})")
 
-        # 求解生成树个数
-        count = analyzer.solve_spanning_trees()
+        # 生成树个数
+        count = analyzer.solve_spanning_trees_count()
         print(f"\n生成树总个数: {count}")
 
-        # 获取一颗生成树
+        # 显示所有生成树
+        all_trees = analyzer.get_all_spanning_trees()
+        for i, tree in enumerate(all_trees):
+            print(f"T{i + 1}: {tree}")
+
+        # 基准树 T1
         t_adj, t_graph, t_labels = analyzer.get_one_spanning_tree()
-        print(f"\n其中一颗生成树的相邻矩阵:")
-        print(t_adj)
-        print(f"   包含边: {t_labels}")
+        print(f"\n基准生成树 T1 的邻接矩阵:")
+        for row in t_adj:
+            print(" ".join(map(str, row.astype(int))))
 
         # 回路系统
-        raw_cycles, basic_cycles = analyzer.solve_basic_cycles(t_graph)
-        print(f"\n最小绕行单元库 (即基本回路系统):")
-        print("   {" + ", ".join(basic_cycles) + "}")
+        raw_basis, formatted_cycles = analyzer.solve_basic_cycles(t_graph)
+        print(f"\n基本回路系统:")
+        for i, c in enumerate(formatted_cycles):
+            print(f"C{i + 1}: {c}")
 
         # 环路空间
-        cycle_space = analyzer.solve_cycle_space(raw_cycles)
-        print(f"\n完整绕行方案规划 (即环路空间):")
-        print("   {" + ", ".join(cycle_space) + "}")
+        cycle_space = analyzer.solve_cycle_space(raw_basis)
+        print(f"\n完整环路空间:")
+        print("{" + ", \n".join(cycle_space) + "}")
 
-        # 可视化展示
-        analyzer.visualize(tree_adj=t_adj, title="交通网络分析 (红色为构建的最小必要路网)")
+        analyzer.visualize(tree_adj=t_adj, title="交通网络分析 (红色为生成树 T1)")
