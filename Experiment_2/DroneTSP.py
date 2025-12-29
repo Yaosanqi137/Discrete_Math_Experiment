@@ -152,9 +152,6 @@ class DroneTSP:
 
     @staticmethod
     def from_input():
-        """
-        仿照参考代码实现的输入接口
-        """
         while True:
             try:
                 method = int(input("请选择输入邻接矩阵的方式 (0: 手动输入, 1: 文件输入): "))
